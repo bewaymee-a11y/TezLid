@@ -72,7 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Извините, произошла ошибка. Попробуйте позже или свяжитесь с нами напрямую."
         )
 
-async def main():
+def main():
     """
     Start the bot in polling mode
     """
@@ -90,21 +90,10 @@ async def main():
     # Start polling
     logger.info("Starting bot in polling mode...")
     logger.info(f"Backend URL: {BACKEND_URL}")
+    logger.info("Bot is ready to receive messages!")
     
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Run the bot
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
-    import signal
-    import sys
-    
-    def signal_handler(sig, frame):
-        logger.info("Bot stopped by user")
-        sys.exit(0)
-    
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot stopped")
+    main()
