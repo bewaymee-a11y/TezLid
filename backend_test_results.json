@@ -1,0 +1,73 @@
+{
+  "timestamp": "2026-01-29T20:38:48.574102",
+  "total_tests": 13,
+  "passed_tests": 13,
+  "success_rate": "100.0%",
+  "results": [
+    {
+      "test": "Root endpoint (/api/)",
+      "success": true,
+      "details": "Response: {'message': 'Lead Processing Service is running'}"
+    },
+    {
+      "test": "Stats endpoint (/api/stats)",
+      "success": true,
+      "details": "Stats: {'total': 0, 'by_type': {'hot': 0, 'warm': 0, 'cold': 0}, 'high_urgency': 0, 'new_leads': 0}"
+    },
+    {
+      "test": "Leads endpoint (/api/leads)",
+      "success": true,
+      "details": "Retrieved 0 leads"
+    },
+    {
+      "test": "Leads filtering (status=new)",
+      "success": true,
+      "details": "Filter status=new: 0 results"
+    },
+    {
+      "test": "Leads filtering (lead_type=hot)",
+      "success": true,
+      "details": "Filter lead_type=hot: 0 results"
+    },
+    {
+      "test": "Leads filtering (urgency=high)",
+      "success": true,
+      "details": "Filter urgency=high: 0 results"
+    },
+    {
+      "test": "Telegram webhook with AI classification",
+      "success": true,
+      "details": "Response: {'status': 'success', 'reply_sent': True, 'lead_saved': True}"
+    },
+    {
+      "test": "AI Classifier test 1",
+      "success": true,
+      "details": "Message: 'Привет! Мне нужна помощь с нас...' -> {'lead': True, 'lead_type': 'hot', 'service': 'настройка сайта', 'urgency': 'high', 'reply': 'Здравствуйте! Спасибо за ваш запрос. Мы свяжемся с вами в ближайшее время, чтобы обсудить детали настройки сайта.'}"
+    },
+    {
+      "test": "AI Classifier test 2",
+      "success": true,
+      "details": "Message: 'Сколько стоит создание интерне...' -> {'lead': True, 'lead_type': 'warm', 'service': 'создание интернет-магазина', 'urgency': 'medium', 'reply': 'Спасибо за ваш интерес к нашим услугам. Наш менеджер свяжется с вами в ближайшее время для обсуждения деталей и предоставления точной стоимости.'}"
+    },
+    {
+      "test": "AI Classifier test 3",
+      "success": true,
+      "details": "Message: 'Спасибо за информацию!...' -> {'lead': False, 'lead_type': 'cold', 'service': 'Не применимо', 'urgency': 'low', 'reply': 'Благодарим вас за вашу благодарность! Если у вас будут вопросы, мы будем рады помочь.'}"
+    },
+    {
+      "test": "AI Classifier test 4",
+      "success": true,
+      "details": "Message: 'Хочу заказать разработку мобил...' -> {'lead': True, 'lead_type': 'hot', 'service': 'разработка мобильного приложения', 'urgency': 'high', 'reply': 'Спасибо за ваш интерес к нашей компании. Наш менеджер свяжется с вами в ближайшее время, чтобы обсудить детали заказа.'}"
+    },
+    {
+      "test": "Notification system (missing tokens)",
+      "success": true,
+      "details": "Functions handled missing tokens gracefully"
+    },
+    {
+      "test": "Root endpoint (/api/)",
+      "success": true,
+      "details": "Response: {'message': 'Lead Processing Service is running'}"
+    }
+  ]
+}
