@@ -94,7 +94,17 @@ async def main():
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
+    import signal
+    import sys
+    
+    def signal_handler(sig, frame):
+        logger.info("Bot stopped by user")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped")
