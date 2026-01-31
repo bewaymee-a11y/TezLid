@@ -18,9 +18,9 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'tezlid')]
 
 # Lifespan context manager for startup/shutdown events
 @asynccontextmanager
@@ -52,7 +52,7 @@ class Lead(BaseModel):
     model_config = ConfigDict(extra="ignore")
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    company_id: str  # Multi-tenant: which company owns this lead
+    company_id: Optional[str] = None  # Multi-tenant: which company owns this lead
     bot_id: Optional[str] = None  # Telegram bot ID for reference
     client_id: str
     username: Optional[str] = None
@@ -141,8 +141,8 @@ async def create_company(
         )
         
         # Get BASE_URL from environment
-        base_url = os.environ.get("BASE_URL", "http://localhost:8001")
-        webhook_url = f"{base_url}/telegram/webhook/{company.id}/{company.webhook_secret}"
+        base_url = os.environ.get("BASE_URL", "http://localhost:8001").rstrip("/")
+        webhook_url = f"{base_url}/api/telegram/webhook/{company.id}/{company.webhook_secret}"
         company.webhook_url = webhook_url
         
         # Set webhook
@@ -197,8 +197,8 @@ async def connect_telegram_bot(
         # Update company
         import secrets
         webhook_secret = secrets.token_urlsafe(32)
-        base_url = os.environ.get("BASE_URL", "http://localhost:8001")
-        webhook_url = f"{base_url}/telegram/webhook/{company_id}/{webhook_secret}"
+        base_url = os.environ.get("BASE_URL", "http://localhost:8001").rstrip("/")
+        webhook_url = f"{base_url}/api/telegram/webhook/{company_id}/{webhook_secret}"
         
         # Set webhook
         webhook_set = await telegram_manager.set_webhook(request.bot_token, webhook_url)
@@ -282,81 +282,155 @@ async def disconnect_telegram_bot(company_id: str):
 
 
 @api_router.post("/telegram/webhook")
-async def telegram_webhook(webhook: TelegramWebhook):
-    """Receives messages from Telegram bot"""
+async def telegram_webhook(update_data: dict):
+    """Receives updates from Telegram bot (legacy single-bot mode)"""
     try:
-        message_data = webhook.message
-        
-        # Extract message info
-        chat_id = message_data.get('chat', {}).get('id')
-        text = message_data.get('text', '')
-        username = message_data.get('from', {}).get('username')
-        first_name = message_data.get('from', {}).get('first_name', 'Клиент')
-        
-        if not text or not chat_id:
-            return {"status": "ignored", "reason": "no text or chat_id"}
-        
-        logger.info(f"Received message from {username or first_name} (chat_id: {chat_id}): {text}")
-        
-        # Classify the message using AI
-        classification = await classify_lead(text, str(chat_id))
-        
-        # Save to database if it's a lead
-        if classification.get('lead', False):
-            lead = Lead(
-                client_id=str(chat_id),
-                username=username,
-                first_name=first_name,
-                message=text,
-                lead_type=classification.get('lead_type', 'cold'),
-                service=classification.get('service', 'Не определено'),
-                urgency=classification.get('urgency', 'medium')
+        bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+        if not bot_token:
+            raise HTTPException(status_code=500, detail="Telegram bot token not configured")
+
+        update = Update.de_json(update_data, telegram_manager.get_bot(bot_token))
+
+        if update.message and update.message.text:
+            message = update.message
+            chat_id = message.chat_id
+            text = message.text
+            username = message.from_user.username if message.from_user else None
+            first_name = message.from_user.first_name if message.from_user else "Клиент"
+
+            logger.info(f"Received message from {username or first_name} (chat_id: {chat_id}): {text}")
+
+            # Classify the message using AI
+            classification = await classify_lead(text, str(chat_id))
+
+            # Save to database if it's a lead
+            if classification.get('lead', False):
+                lead = Lead(
+                    client_id=str(chat_id),
+                    username=username,
+                    first_name=first_name,
+                    message=text,
+                    lead_type=classification.get('lead_type', 'cold'),
+                    service=classification.get('service', 'Не определено'),
+                    urgency=classification.get('urgency', 'medium')
+                )
+
+                # Save to MongoDB
+                lead_dict = lead.model_dump()
+                lead_dict['timestamp'] = lead_dict['timestamp'].isoformat()
+                await db.leads.insert_one(lead_dict)
+
+                logger.info(f"Lead saved: {lead.lead_type} - {lead.service} (urgency: {lead.urgency})")
+
+                # Send to CRM integrations
+                await dispatch_crm_event("lead.created", lead.model_dump(mode='json'))
+
+                # Send notification to manager
+                await send_notification_to_manager(
+                    lead_id=lead.id,
+                    lead_type=lead.lead_type,
+                    service=lead.service,
+                    urgency=lead.urgency,
+                    client_name=first_name or username or "Клиент",
+                    client_username=f"@{username}" if username else "-",
+                    message=text,
+                    chat_id=chat_id
+                )
+
+            # Send reply to client
+            reply = classification.get('reply', 'Спасибо за сообщение! Мы свяжемся с вами в ближайшее время.')
+            await process_message(chat_id, reply)
+
+            return {"status": "success", "reply_sent": True, "lead_saved": classification.get('lead', False)}
+
+        if update.callback_query:
+            query = update.callback_query
+            callback_data = query.data
+
+            logger.info(f"Received callback: {callback_data}")
+
+            parts = callback_data.split(":")
+            if len(parts) != 3 or parts[0] != "lead":
+                await telegram_manager.answer_callback_query(
+                    bot_token=bot_token,
+                    callback_query_id=query.id,
+                    text="❌ Неверный формат команды",
+                    show_alert=True
+                )
+                return {"status": "error", "reason": "invalid callback format"}
+
+            _, lead_id, action = parts
+            if action not in ["accept", "call", "reject"]:
+                await telegram_manager.answer_callback_query(
+                    bot_token=bot_token,
+                    callback_query_id=query.id,
+                    text="❌ Неверное действие",
+                    show_alert=True
+                )
+                return {"status": "error", "reason": "invalid action"}
+
+            lead = await db.leads.find_one({"id": lead_id})
+            if not lead:
+                await telegram_manager.answer_callback_query(
+                    bot_token=bot_token,
+                    callback_query_id=query.id,
+                    text="❌ Лид не найден",
+                    show_alert=True
+                )
+                return {"status": "error", "reason": "lead not found"}
+
+            status_map = {
+                "accept": "accepted",
+                "call": "contacted",
+                "reject": "rejected"
+            }
+            new_status = status_map[action]
+
+            await db.leads.update_one(
+                {"id": lead_id},
+                {"$set": {"status": new_status}}
             )
-            
-            # Save to MongoDB
-            lead_dict = lead.model_dump()
-            lead_dict['timestamp'] = lead_dict['timestamp'].isoformat()
-            await db.leads.insert_one(lead_dict)
-            
-            logger.info(f"Lead saved: {lead.lead_type} - {lead.service} (urgency: {lead.urgency})")
-            
-            # Send to CRM integrations
-            try:
-                crm = await get_crm_integration()
-                integrations = await crm.list_integrations(enabled_only=True)
-                
-                for integration in integrations:
-                    # Send webhook in background (don't wait for response)
-                    asyncio.create_task(
-                        crm.send_webhook(
-                            integration_id=integration['id'],
-                            event="lead.created",
-                            lead_data=lead.model_dump(mode='json')
-                        )
-                    )
-                
-                logger.info(f"Sent lead to {len(integrations)} CRM integration(s)")
-            except Exception as e:
-                logger.error(f"Error sending to CRM: {str(e)}")
-                # Don't fail the request if CRM integration fails
-            
-            # Send notification to manager
-            await send_notification_to_manager(
-                lead_id=lead.id,
-                lead_type=lead.lead_type,
-                service=lead.service,
-                urgency=lead.urgency,
-                client_name=first_name or username or "Клиент",
-                client_username=f"@{username}" if username else "-",
-                message=text,
-                chat_id=chat_id
+
+            lead_payload = {key: value for key, value in lead.items() if key != "_id"}
+            lead_payload["status"] = new_status
+            await dispatch_crm_event("lead.updated", lead_payload)
+
+            client_messages = {
+                "accept": "✅ Заявка принята! Менеджер скоро свяжется с вами.",
+                "call": "📞 Менеджер сейчас свяжется с вами по телефону.",
+                "reject": "❌ Сейчас не можем помочь. Если актуально — напишите позже."
+            }
+
+            await process_message(
+                int(lead["client_id"]),
+                client_messages[action]
             )
-        
-        # Send reply to client
-        reply = classification.get('reply', 'Спасибо за сообщение! Мы свяжемся с вами в ближайшее время.')
-        await process_message(chat_id, reply)
-        
-        return {"status": "success", "reply_sent": True, "lead_saved": classification.get('lead', False)}
+
+            action_names = {
+                "accept": "✅ Заявка принята",
+                "call": "📞 Звонок запланирован",
+                "reject": "❌ Заявка отклонена"
+            }
+
+            new_text = f"{query.message.text}\n\n━━━━━━━━━━━━━━━━\n{action_names[action]}\n⏰ {datetime.now().strftime('%H:%M:%S')}"
+
+            await telegram_manager.edit_message_text(
+                bot_token=bot_token,
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                text=new_text
+            )
+
+            await telegram_manager.answer_callback_query(
+                bot_token=bot_token,
+                callback_query_id=query.id,
+                text=f"{action_names[action]} ✓",
+                show_alert=True
+            )
+
+            return {"status": "success", "action": action, "new_status": new_status}
+
+        return {"status": "ignored", "reason": "no message or callback_query"}
         
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
@@ -432,6 +506,9 @@ async def telegram_webhook_byob(company_id: str, webhook_secret: str, update_dat
                 await db.leads.insert_one(lead_dict)
                 
                 logger.info(f"[{company_id}] Lead created: {lead.id}")
+
+                # Send to CRM integrations
+                await dispatch_crm_event("lead.created", lead.model_dump(mode='json'))
                 
                 # Send notification to manager using company's bot
                 await telegram_manager.send_manager_notification(
@@ -511,6 +588,10 @@ async def telegram_webhook_byob(company_id: str, webhook_secret: str, update_dat
                 {"id": lead_id},
                 {"$set": {"status": new_status}}
             )
+
+            lead_payload = {key: value for key, value in lead.items() if key != "_id"}
+            lead_payload["status"] = new_status
+            await dispatch_crm_event("lead.updated", lead_payload)
             
             logger.info(f"[{company_id}] Lead {lead_id} status updated to {new_status}")
             
@@ -619,6 +700,10 @@ async def update_lead_status(lead_id: str, status: str):
     
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
+
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if lead:
+        await dispatch_crm_event("lead.updated", lead)
     
     return {"success": True, "message": "Status updated"}
 
@@ -661,6 +746,9 @@ async def manager_action(lead_id: str, request: ManagerActionRequest):
         )
         
         logger.info(f"Lead {lead_id} status updated to {new_status} by manager action")
+
+        lead["status"] = new_status
+        await dispatch_crm_event("lead.updated", lead)
         
         # Get client chat ID
         client_chat_id = int(lead.get('client_id'))
@@ -742,6 +830,25 @@ async def get_crm_integration():
 async def get_api_key_manager():
     """Dependency to get API key manager instance"""
     return APIKeyManager(db)
+
+async def dispatch_crm_event(event: str, lead_data: dict) -> None:
+    """Send CRM webhooks for a lead event without blocking main flow."""
+    try:
+        crm = await get_crm_integration()
+        integrations = await crm.list_integrations(enabled_only=True)
+
+        for integration in integrations:
+            asyncio.create_task(
+                crm.send_webhook(
+                    integration_id=integration['id'],
+                    event=event,
+                    lead_data=lead_data
+                )
+            )
+
+        logger.info(f"Sent {event} to {len(integrations)} CRM integration(s)")
+    except Exception as e:
+        logger.error(f"Error sending {event} to CRM: {str(e)}")
 
 async def verify_api_key(authorization: str = Header(None)):
     """Verify API key from Authorization header"""
@@ -941,6 +1048,8 @@ async def external_create_lead(lead: Lead):
     await db.leads.insert_one(lead_dict)
     
     logger.info(f"Lead created via API: {lead.id}")
+
+    await dispatch_crm_event("lead.created", lead.model_dump(mode='json'))
     
     return {"success": True, "lead_id": lead.id}
 
@@ -954,6 +1063,10 @@ async def external_update_lead(lead_id: str, updates: dict):
     
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
+
+    lead = await db.leads.find_one({"id": lead_id}, {"_id": 0})
+    if lead:
+        await dispatch_crm_event("lead.updated", lead)
     
     return {"success": True}
 
