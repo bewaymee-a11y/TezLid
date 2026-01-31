@@ -94,7 +94,7 @@ class Lead(BaseModel):
 | POST | `/api/companies/{id}/connect-telegram` | Connect/update bot for company |
 | GET | `/api/companies/{id}` | Get company info (no sensitive data) |
 | DELETE | `/api/companies/{id}/disconnect-telegram` | Disconnect bot |
-| POST | `/telegram/webhook/{company_id}/{webhook_secret}` | **Main BYOB webhook** |
+| POST | `/api/telegram/webhook/{company_id}/{webhook_secret}` | **Main BYOB webhook** |
 | GET | `/api/leads?company_id=...` | Get leads (filtered by company) |
 
 **d) Webhook Handler (`/telegram/webhook/{company_id}/{webhook_secret}`):**

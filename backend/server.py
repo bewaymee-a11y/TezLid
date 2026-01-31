@@ -13,6 +13,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from telegram import Update
 from telegram_manager import telegram_manager
+from crm_integration import CRMIntegration
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -21,6 +22,10 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+async def get_crm_integration():
+    """Factory to get CRM integration instance with current DB"""
+    return CRMIntegration(db, os.environ)
 
 # Lifespan context manager for startup/shutdown events
 @asynccontextmanager
@@ -142,7 +147,7 @@ async def create_company(
         
         # Get BASE_URL from environment
         base_url = os.environ.get("BASE_URL", "http://localhost:8001")
-        webhook_url = f"{base_url}/telegram/webhook/{company.id}/{company.webhook_secret}"
+        webhook_url = f"{base_url}/api/telegram/webhook/{company.id}/{company.webhook_secret}"
         company.webhook_url = webhook_url
         
         # Set webhook
@@ -198,7 +203,7 @@ async def connect_telegram_bot(
         import secrets
         webhook_secret = secrets.token_urlsafe(32)
         base_url = os.environ.get("BASE_URL", "http://localhost:8001")
-        webhook_url = f"{base_url}/telegram/webhook/{company_id}/{webhook_secret}"
+        webhook_url = f"{base_url}/api/telegram/webhook/{company_id}/{webhook_secret}"
         
         # Set webhook
         webhook_set = await telegram_manager.set_webhook(request.bot_token, webhook_url)
@@ -447,6 +452,26 @@ async def telegram_webhook_byob(company_id: str, webhook_secret: str, update_dat
                     chat_id=chat_id
                 )
             
+                # Send to CRM integrations
+                try:
+                    crm = await get_crm_integration()
+                    integrations = await crm.list_integrations(enabled_only=True)
+                    
+                    for integration in integrations:
+                        # Send webhook in background (don't wait for response)
+                        asyncio.create_task(
+                            crm.send_webhook(
+                                integration_id=integration['id'],
+                                event="lead.created",
+                                lead_data=lead.model_dump(mode='json')
+                            )
+                        )
+                    
+                    logger.info(f"[{company_id}] Sent lead to {len(integrations)} CRM integration(s)")
+                except Exception as e:
+                    logger.error(f"Error sending to CRM: {str(e)}")
+                    # Don't fail the request if CRM integration fails
+            
             # Send reply to client using company's bot
             reply = classification.get('reply', 'Спасибо за сообщение! Мы свяжемся с вами в ближайшее время.')
             await telegram_manager.send_message(
@@ -536,6 +561,15 @@ async def telegram_webhook_byob(company_id: str, webhook_secret: str, update_dat
             
             new_text = f"{query.message.text}\n\n━━━━━━━━━━━━━━━━\n{action_names[action]}\n⏰ {datetime.now().strftime('%H:%M:%S')}"
             
+            # First remove buttons explicitly
+            await telegram_manager.edit_message_reply_markup(
+                bot_token=bot_token,
+                chat_id=query.message.chat_id,
+                message_id=query.message.message_id,
+                reply_markup=None
+            )
+            
+            # Then edit text
             await telegram_manager.edit_message_text(
                 bot_token=bot_token,
                 chat_id=query.message.chat_id,

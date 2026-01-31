@@ -79,7 +79,7 @@ curl -X POST "http://localhost:8001/api/companies?name=TestCompany" \
     "username": "your_bot_name",
     "first_name": "Your Bot"
   },
-  "webhook_url": "https://abc123.ngrok.io/telegram/webhook/abc-123-uuid/secret-here",
+  "webhook_url": "https://abc123.ngrok.io/api/telegram/webhook/abc-123-uuid/secret-here",
   "message": "Bot @your_bot_name connected successfully"
 }
 ```
@@ -96,7 +96,7 @@ curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 {
   "ok": true,
   "result": {
-    "url": "https://abc123.ngrok.io/telegram/webhook/...",
+    "url": "https://abc123.ngrok.io/api/telegram/webhook/...",
     "has_custom_certificate": false,
     "pending_update_count": 0
   }

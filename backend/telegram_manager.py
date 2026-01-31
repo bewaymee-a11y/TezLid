@@ -237,7 +237,36 @@ class TelegramBotManager:
         except TelegramError as e:
             logger.error(f"Failed to edit message: {str(e)}")
             return False
-    
+    async def edit_message_reply_markup(
+        self,
+        bot_token: str,
+        chat_id: int,
+        message_id: int,
+        reply_markup: Optional[InlineKeyboardMarkup] = None
+    ) -> bool:
+        """
+        Edit message reply markup (used to remove buttons).
+        
+        Args:
+            bot_token: Telegram bot token
+            chat_id: Chat ID where message is
+            message_id: Message ID to edit
+            reply_markup: New keyboard (None removes buttons)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            bot = self.get_bot(bot_token)
+            await bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=reply_markup
+            )
+            return True
+        except TelegramError as e:
+            logger.error(f"Failed to edit reply markup: {str(e)}")
+            return False
     async def answer_callback_query(
         self,
         bot_token: str,
