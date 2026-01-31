@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import google.generativeai as genai
 import json
 import logging
 
@@ -8,8 +8,10 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Initialize AI chat
-api_key = os.environ.get('EMERGENT_LLM_KEY')
+# Initialize AI
+api_key = os.environ.get('EMERGENT_LLM_KEY') or os.environ.get('GOOGLE_API_KEY')
+if api_key:
+    genai.configure(api_key=api_key)
 
 SYSTEM_PROMPT = """Ты — AI-ассистент для классификации лидов малого бизнеса.
 
@@ -55,26 +57,26 @@ async def classify_lead(message: str, session_id: str) -> dict:
         dict with classification results
     """
     try:
-        # Initialize chat
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=session_id,
-            system_message=SYSTEM_PROMPT
-        ).with_model("openai", "gpt-4o")
+        # Initialize Gemini model
+        model = genai.GenerativeModel('gemini-pro')
         
-        # Create user message
-        user_message = UserMessage(
-            text=f"Сообщение от клиента: {message}\n\nОтветь ТОЛЬКО JSON, без дополнительного текста."
-        )
+        # Create prompt
+        prompt = f"""{SYSTEM_PROMPT}
+
+Сообщение от клиента: {message}
+
+Ответь ТОЛЬКО JSON, без дополнительного текста."""
         
         # Get AI response
-        response = await chat.send_message(user_message)
-        logger.info(f"AI Response: {response}")
+        response = model.generate_content(prompt)
+        response_text = response.text
+        logger.info(f"AI Response: {response_text}")
+        
         
         # Parse JSON response
         try:
             # Clean response - remove markdown code blocks if present
-            clean_response = response.strip()
+            clean_response = response_text.strip()
             if clean_response.startswith('```'):
                 # Remove ```json and ``` markers
                 clean_response = clean_response.split('\n', 1)[1] if '\n' in clean_response else clean_response

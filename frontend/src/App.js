@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import axios from "axios";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Activity, TrendingUp, Clock, Users } from "lucide-react";
+import { IntegrationsPage } from "@/pages/Integrations";
+
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -44,13 +46,13 @@ const LeadsDashboard = () => {
       setLoading(false);
     };
     loadData();
-    
+
     // Refresh every 30 seconds
     const interval = setInterval(() => {
       fetchLeads();
       fetchStats();
     }, 30000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -65,7 +67,7 @@ const LeadsDashboard = () => {
   };
 
   const getLeadBadgeColor = (type) => {
-    switch(type) {
+    switch (type) {
       case 'hot': return 'bg-red-500 hover:bg-red-600';
       case 'warm': return 'bg-orange-500 hover:bg-orange-600';
       case 'cold': return 'bg-blue-500 hover:bg-blue-600';
@@ -74,7 +76,7 @@ const LeadsDashboard = () => {
   };
 
   const getUrgencyBadgeColor = (urgency) => {
-    switch(urgency) {
+    switch (urgency) {
       case 'high': return 'bg-red-600 hover:bg-red-700';
       case 'medium': return 'bg-yellow-500 hover:bg-yellow-600';
       case 'low': return 'bg-green-500 hover:bg-green-600';
@@ -83,7 +85,7 @@ const LeadsDashboard = () => {
   };
 
   const getStatusBadgeColor = (status) => {
-    switch(status) {
+    switch (status) {
       case 'new': return 'bg-blue-500 hover:bg-blue-600';
       case 'contacted': return 'bg-purple-500 hover:bg-purple-600';
       case 'converted': return 'bg-green-600 hover:bg-green-700';
@@ -119,15 +121,20 @@ const LeadsDashboard = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6" data-testid="leads-dashboard">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
+        {/* Header with Navigation */}
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-4xl font-bold text-slate-900" data-testid="dashboard-title">Панель лидов</h1>
             <p className="text-slate-600 mt-1">Автоматическая обработка через Telegram</p>
           </div>
-          <Button onClick={() => { fetchLeads(); fetchStats(); }} data-testid="refresh-button">
-            Обновить
-          </Button>
+          <div className="flex gap-3">
+            <Link to="/integrations">
+              <Button variant="outline">⚙️ CRM Интеграции</Button>
+            </Link>
+            <Button onClick={() => { fetchLeads(); fetchStats(); }} data-testid="refresh-button">
+              Обновить
+            </Button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -142,7 +149,7 @@ const LeadsDashboard = () => {
                 <div className="text-2xl font-bold">{stats.total}</div>
               </CardContent>
             </Card>
-            
+
             <Card data-testid="stat-card-hot">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Горячие</CardTitle>
@@ -152,7 +159,7 @@ const LeadsDashboard = () => {
                 <div className="text-2xl font-bold text-red-600">{stats.by_type.hot}</div>
               </CardContent>
             </Card>
-            
+
             <Card data-testid="stat-card-high-urgency">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Срочные</CardTitle>
@@ -162,7 +169,7 @@ const LeadsDashboard = () => {
                 <div className="text-2xl font-bold text-orange-600">{stats.high_urgency}</div>
               </CardContent>
             </Card>
-            
+
             <Card data-testid="stat-card-new">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Новые</CardTitle>
@@ -277,6 +284,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LeadsDashboard />} />
+          <Route path="/integrations" element={<IntegrationsPage />} />
         </Routes>
       </BrowserRouter>
     </div>

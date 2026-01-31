@@ -1,6 +1,7 @@
 import os
 import logging
-from telegram import Bot
+from datetime import datetime
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 from dotenv import load_dotenv
 
@@ -39,6 +40,7 @@ async def process_message(chat_id: int, text: str):
         return False
 
 async def send_notification_to_manager(
+    lead_id: str,
     lead_type: str,
     service: str,
     urgency: str,
@@ -48,9 +50,10 @@ async def send_notification_to_manager(
     chat_id: int
 ):
     """
-    Send notification about new lead to manager
+    Send notification about new lead to manager with inline action buttons
     
     Args:
+        lead_id: Unique lead identifier
         lead_type: Type of lead (hot/warm/cold)
         service: Service requested
         urgency: Urgency level
@@ -88,15 +91,30 @@ async def send_notification_to_manager(
 👤 Клиент: {client_name}
 ✉️ Username: {client_username}
 💬 ID чата: {chat_id}
+🆔 Lead ID: {lead_id}
 
 📝 Сообщение:
 {message}
 
-⏰ Время: {os.popen('date +"%Y-%m-%d %H:%M:%S"').read().strip()}"""
+⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+    
+    # Create inline keyboard with action buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Принять", callback_data=f"lead:{lead_id}:accept"),
+            InlineKeyboardButton("📞 Позвонить", callback_data=f"lead:{lead_id}:call"),
+            InlineKeyboardButton("❌ Отказать", callback_data=f"lead:{lead_id}:reject")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
     try:
-        await bot.send_message(chat_id=MANAGER_CHAT_ID, text=notification)
-        logger.info(f"Notification sent to manager about {lead_type} lead")
+        await bot.send_message(
+            chat_id=MANAGER_CHAT_ID,
+            text=notification,
+            reply_markup=reply_markup
+        )
+        logger.info(f"Notification sent to manager about {lead_type} lead with ID {lead_id}")
         return True
     except TelegramError as e:
         logger.error(f"Failed to send notification to manager: {str(e)}")
